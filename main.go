@@ -8,7 +8,10 @@ import (
 	"log"
 
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/events"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
+	"github.com/rakshasa/docker-container-dns/state"
 )
 
 const (
@@ -29,17 +32,41 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	msgs, errs := cli.Events(ctx, types.EventsOptions{})
+	filter := filters.NewArgs()
+
+	filter.Add("type", events.ContainerEventType)
+	filter.Add("event", "create")
+	filter.Add("event", "destroy")
+	filter.Add("event", "start")
+	filter.Add("event", "stop")
+
+	filter.Add("type", events.NetworkEventType)
+	filter.Add("event", "create")
+	filter.Add("event", "destroy")
+	filter.Add("event", "connect")
+	filter.Add("event", "disconnect")
+
+	msgs, errs := cli.Events(ctx, types.EventsOptions{
+		Filters: filter,
+	})
 	if err != nil {
 		log.Fatalf("failed to start listening to docker events: %v", err)
 	}
+
+	containers := state.NewContainerList()
+	networks := state.NewNetworkList()
 
 	for {
 		select {
 		case err := <-errs:
 			log.Fatalf("read error: %v", err)
 		case msg := <-msgs:
-			log.Printf("read message: %s", msg)
+			switch msg.Type {
+			case events.ContainerEventType:
+				containers.HandleEvent(msg)
+			case events.NetworkEventType:
+				networks.HandleEvent(msg)
+			}
 		}
 	}
 }
