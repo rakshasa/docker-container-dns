@@ -1,15 +1,10 @@
 package main
 
-// go build -mod=readonly -mod=vendor -v
-//	"docker.io/go-docker/api/types/filters"
-
 import (
 	"context"
 	"log"
+	"time"
 
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/events"
-	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
 	"github.com/rakshasa/docker-container-dns/state"
 )
@@ -29,44 +24,43 @@ func main() {
 		log.Fatalf("failed to initialize new docker client with version '%s': %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	cancelCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	filter := filters.NewArgs()
+	state.Containers = state.NewContainerList(cancelCtx, cli)
+	state.Networks = state.NewNetworkList(cancelCtx, cli)
 
-	filter.Add("type", events.ContainerEventType)
-	filter.Add("event", "create")
-	filter.Add("event", "destroy")
-	filter.Add("event", "start")
-	filter.Add("event", "stop")
+	ctx := context.WithValue(cancelCtx, "client", cli)
 
-	filter.Add("type", events.NetworkEventType)
-	filter.Add("event", "create")
-	filter.Add("event", "destroy")
-	filter.Add("event", "connect")
-	filter.Add("event", "disconnect")
-
-	msgs, errs := cli.Events(ctx, types.EventsOptions{
-		Filters: filter,
-	})
-	if err != nil {
-		log.Fatalf("failed to start listening to docker events: %v", err)
-	}
-
-	containers := state.NewContainerList()
-	networks := state.NewNetworkList()
+	var timeout chan int
 
 	for {
+		var printStatus bool
+
 		select {
-		case err := <-errs:
-			log.Fatalf("read error: %v", err)
-		case msg := <-msgs:
-			switch msg.Type {
-			case events.ContainerEventType:
-				containers.HandleEvent(msg)
-			case events.NetworkEventType:
-				networks.HandleEvent(msg)
-			}
+		case err := <-state.Containers.Errs:
+			log.Fatalf("container error: %v", err)
+		case err := <-state.Networks.Errs:
+			log.Fatalf("network error: %v", err)
+		case msg := <-state.Containers.Msgs:
+			state.Containers.HandleEvent(ctx, msg)
+			printStatus = true
+		case msg := <-state.Networks.Msgs:
+			state.Networks.HandleEvent(ctx, msg)
+			printStatus = true
+		case <-timeout:
+			state.Networks.PrintStatus()
+			state.Containers.PrintStatus()
+			timeout = nil
+		}
+
+		if printStatus && timeout == nil {
+			timeout = make(chan int, 1)
+
+			go func() {
+				time.Sleep(5 * time.Second)
+				timeout <- 0
+			}()
 		}
 	}
 }
