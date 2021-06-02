@@ -46,7 +46,10 @@ func main() {
 		// 	state.Containers.HandleEvent(ctx, msg)
 		// 	printStatus = true
 		case msg := <-state.Networks.Msgs:
-			state.Networks.HandleEvent(ctx, msg)
+			if err := state.Networks.HandleEvent(ctx, msg); err != nil {
+				log.Printf("unhandled network message error: %v", err)
+			}
+
 			printStatus = true
 		case <-timeout:
 			state.Networks.PrintStatus()
@@ -58,7 +61,7 @@ func main() {
 			timeout = make(chan int, 1)
 
 			go func() {
-				time.Sleep(5 * time.Second)
+				time.Sleep(30 * time.Second)
 				timeout <- 0
 			}()
 		}
