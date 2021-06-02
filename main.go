@@ -6,31 +6,38 @@ import (
 	"time"
 
 	"github.com/docker/docker/client"
-	"github.com/rakshasa/docker-container-dns/state"
 )
 
 const (
 	DockerVersion = "1.40"
+	DockerContextVarName = "docker-client"
 )
 
 func init() {
 }
 
-func main() {
-	log.Printf("starting docker-container-dns")
-
+func newContextAndCancel() (context.Context, context.CancelFunc) {
 	cli, err := client.NewClientWithOpts(client.WithVersion(DockerVersion))
 	if err != nil {
 		log.Fatalf("failed to initialize new docker client with version '%s': %v", err)
 	}
 
-	cancelCtx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
+	ctx = context.WithValue(ctx, DockerContextVarName, cli)
+
+	return ctx, cancel
+}
+
+func main() {
+	log.Printf("starting docker-container-dns")
+
+	ctx, cancel := newContextAndCancel()
 	defer cancel()
 
-	state.Containers = state.NewContainerList(cancelCtx, cli)
-	state.Networks = state.NewNetworkList(cancelCtx, cli)
-
-	ctx := context.WithValue(cancelCtx, "client", cli)
+	networks, err := newNetworkList(ctx)
+	if err != nil {
+		log.Fatalf("failed to create docker network list: %v", err)
+	}
 
 	var timeout chan int
 
@@ -38,22 +45,16 @@ func main() {
 		var printStatus bool
 
 		select {
-		case err := <-state.Containers.Errs:
-			log.Fatalf("container error: %v", err)
-		case err := <-state.Networks.Errs:
+		case err := <-networks.Errs:
 			log.Fatalf("network error: %v", err)
-		// case msg := <-state.Containers.Msgs:
-		// 	state.Containers.HandleEvent(ctx, msg)
-		// 	printStatus = true
-		case msg := <-state.Networks.Msgs:
-			if err := state.Networks.HandleEvent(ctx, msg); err != nil {
+		case msg := <-networks.Msgs:
+			if err := networks.HandleEvent(ctx, msg); err != nil {
 				log.Printf("unhandled network message error: %v", err)
 			}
 
 			printStatus = true
 		case <-timeout:
-			state.Networks.PrintStatus()
-			// state.Containers.PrintStatus()
+			networks.PrintStatus()
 			timeout = nil
 		}
 
