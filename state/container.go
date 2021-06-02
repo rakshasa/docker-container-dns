@@ -8,11 +8,14 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 )
 
 type Container struct {
-	Name string
+	Name        string
+	IPv4Address string
+	IPv6Address string
 }
 
 type containerList struct {
@@ -44,8 +47,17 @@ func (m *containerList) PrintStatus() {
 	log.Printf("Containers:")
 
 	for id, container := range m.Containers {
-		log.Printf(" - %s: %s", id, container.Name)
+		log.Printf(" - %s: %s ipv4:%s ipv6:%s",
+			id, container.Name, container.IPv4Address, container.IPv6Address)
 	}
+}
+
+func (m *containerList) InsertWithMessage(containerId string, networkSettings *network.EndpointSettings) {
+	log.Printf("Inserting with message: %v", networkSettings)
+}
+
+func (m *containerList) RemoveWithMessage(containerId string, networkSettings *network.EndpointSettings) {
+	log.Printf("Removing with message: %v", networkSettings)
 }
 
 func (m *containerList) HandleEvent(ctx context.Context, msg events.Message) error {

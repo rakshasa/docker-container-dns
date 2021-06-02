@@ -11,8 +11,16 @@ import (
 	"github.com/docker/docker/client"
 )
 
+type ContainerEndpoint struct {
+	ContainerID   string
+	ContainerName string
+	IPv4Address   string
+	IPv6Address   string
+}
+
 type Network struct {
-	Name string
+	Name               string
+	ContainerEndpoints map[string]*ContainerEndpoint
 }
 
 type networkList struct {
@@ -43,8 +51,19 @@ func NewNetworkList(ctx context.Context, cli *client.Client) *networkList {
 func (m *networkList) PrintStatus() {
 	log.Printf("Networks:")
 
-	for id, network := range m.Networks {
-		log.Printf(" - %s: %s", id, network.Name)
+	for id, nw := range m.Networks {
+		log.Printf(" - %s: %s", id, nw.Name)
+
+		for containerID, endpoint := range nw.ContainerEndpoints {
+			log.Printf("   - %s: %s", containerID, endpoint.ContainerName)
+
+			if len(endpoint.IPv4Address) != 0 {
+				log.Printf("     %65s: %s", "", endpoint.IPv4Address)
+			}
+			if len(endpoint.IPv6Address) != 0 {
+				log.Printf("     %65s: %s", "", endpoint.IPv6Address)
+			}
+		}
 	}
 }
 
@@ -63,11 +82,10 @@ func (m *networkList) HandleEvent(ctx context.Context, msg events.Message) error
 		return m.handleDestroy(msg)
 	case "connect":
 		log.Printf("network->connect: ID:%s %v", msg.Actor.ID, msg.Actor.Attributes)
-		return m.handleDestroy(msg)
-		return nil
+		return m.handleConnect(ctx, msg)
 	case "disconnect":
 		log.Printf("network->disconnect: ID:%s %v", msg.Actor.ID, msg.Actor.Attributes)
-		return nil
+		return m.handleDisconnect(msg)
 	default:
 		log.Printf("unknown network message: %s", msg)
 		return fmt.Errorf("unhandled network event: %v", msg)
@@ -75,62 +93,92 @@ func (m *networkList) HandleEvent(ctx context.Context, msg events.Message) error
 }
 
 func (m *networkList) handleCreate(msg events.Message) error{
-	id, name := msg.Actor.ID, msg.Actor.Attributes["name"]
-	if len(id) == 0 {
+	networkID, networkName := msg.Actor.ID, msg.Actor.Attributes["name"]
+	if len(networkID) == 0 {
 		return fmt.Errorf("network create event message is missing id attribute")
 	}
-	if len(name) == 0 {
+	if len(networkName) == 0 {
 		return fmt.Errorf("network create event message is missing name attribute")
 	}
 
-	if _, exists := m.Networks[id]; exists {
-		log.Printf("network->create: skipping already known network: %s", name)
+	if _, exists := m.Networks[networkID]; exists {
+		log.Printf("network->create: skipping already known network: %s", networkName)
 		return nil
 	}
 
-	log.Printf("network->create: adding network: %s", name)
+	log.Printf("network->create: adding network: %s", networkName)
 
-	m.Networks[id] = &Network{
-		Name: name,
+	m.Networks[networkID] = &Network{
+		Name:               networkName,
+		ContainerEndpoints: make(map[string]*ContainerEndpoint),
 	}
 
 	return nil
 }
 
 func (m *networkList) handleDestroy(msg events.Message) error{
-	id, name := msg.Actor.ID, msg.Actor.Attributes["name"]
-	if len(id) == 0 {
+	networkID, networkName := msg.Actor.ID, msg.Actor.Attributes["name"]
+	if len(networkID) == 0 {
 		return fmt.Errorf("network destroy event message is missing id attribute")
 	}
-	if len(name) == 0 {
+	if len(networkName) == 0 {
 		return fmt.Errorf("network destroy event message is missing name attribute")
 	}
 
-	if _, exists := m.Networks[id]; !exists {
-		log.Printf("network->destroy: skipping unknown network: %s", name)
+	if _, exists := m.Networks[networkID]; !exists {
+		log.Printf("network->destroy: skipping unknown network: %s", networkName)
 		return nil
 	}
 
-	log.Printf("network->destroy: removing network: %s", name)
+	log.Printf("network->destroy: removing network: %s", networkName)
 
-	delete(m.Networks, id)
+	delete(m.Networks, networkID)
 
 	return nil
 }
 
-func (m *networkList) handleConnect(msg events.Message) error{
-	id, name, container := msg.Actor.ID, msg.Actor.Attributes["name"], msg.Actor.Attributes["container"]
-	if len(id) == 0 {
-		return fmt.Errorf("network connect event message is missing id attribute")
-	}
-	if len(name) == 0 {
-		return fmt.Errorf("network connect event message is missing name attribute")
-	}
-	if len(container) == 0 {
-		return fmt.Errorf("network connect event message is missing container attribute")
+func (m *networkList) handleConnect(ctx context.Context, msg events.Message) error {
+	networkID, networkName, containerID := msg.Actor.ID, msg.Actor.Attributes["name"], msg.Actor.Attributes["container"]
+
+	log.Printf("container connected to network: containerID:%s networkID:%s networkName:%s",
+		containerID, networkID, networkName)
+
+	containerInspect, networkEndpoint, err := dockerContainerInspectAndNetworkEndpoint(ctx, containerID, networkID)
+	if err != nil {
+		return fmt.Errorf("could not get container '%s' inspect or network '%s' inspect: %v", containerInspect.Name, networkName, err)
 	}
 
-	log.Printf("network->connect: adding network: %s:%s -> %s", id, name, container)
+	nw, exists := m.Networks[networkID]
+	if !exists {
+		return fmt.Errorf("could not find network: networkID:%s networkName:%s", networkID, networkName)
+	}
+
+	if _, exists := nw.ContainerEndpoints[containerID]; exists {
+		return fmt.Errorf("container already exists on network: containerID:%s networkID:%s networkName:%s",
+			containerID, networkID, networkName)
+	}
+
+	nw.ContainerEndpoints[containerID] = &ContainerEndpoint{
+		ContainerID:   containerID,
+		ContainerName: containerInspect.Name,
+		IPv4Address:   networkEndpoint.IPAddress,
+		IPv6Address:   networkEndpoint.GlobalIPv6Address,
+	}
+
+	// Print ip addresses:
+
+	return nil
+}
+
+func (m *networkList) handleDisconnect(msg events.Message) error {
+	networkID, networkName, containerID := msg.Actor.ID, msg.Actor.Attributes["name"], msg.Actor.Attributes["container"]
+
+	log.Printf("network->disconnect: %s:%s -> %s", networkID, networkName, containerID)
+
+	// Containers.RemoveWithMessage(containerID, networkEndpoint)
+
+
+	// Containers.RemoveWithMessage(containerInspect.Name, networkEndpoint)
 
 	return nil
 }

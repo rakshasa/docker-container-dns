@@ -42,15 +42,15 @@ func main() {
 			log.Fatalf("container error: %v", err)
 		case err := <-state.Networks.Errs:
 			log.Fatalf("network error: %v", err)
-		case msg := <-state.Containers.Msgs:
-			state.Containers.HandleEvent(ctx, msg)
-			printStatus = true
+		// case msg := <-state.Containers.Msgs:
+		// 	state.Containers.HandleEvent(ctx, msg)
+		// 	printStatus = true
 		case msg := <-state.Networks.Msgs:
 			state.Networks.HandleEvent(ctx, msg)
 			printStatus = true
 		case <-timeout:
 			state.Networks.PrintStatus()
-			state.Containers.PrintStatus()
+			// state.Containers.PrintStatus()
 			timeout = nil
 		}
 
