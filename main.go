@@ -38,6 +38,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to create docker network list: %v", err)
 	}
+	if err := networks.LoadList(ctx); err != nil {
+		log.Fatalf("failed to load docker network list: %v", err)
+	}
 
 	go func() {
 		dnsServer := NewDnsServer(ctx)

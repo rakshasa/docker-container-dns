@@ -86,6 +86,47 @@ func (m *networkList) PrintStatus() {
 	}
 }
 
+func (m *networkList) LoadList(ctx context.Context) error {
+	cli, err := dockerClient(ctx)
+	if err != nil {
+		return err
+	}
+
+	log.Printf("loading network list")
+
+	networkList, err := cli.NetworkList(ctx, types.NetworkListOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get network list from docker: %v", err)
+	}
+
+	for _, networkResource := range networkList {
+		nw := &Network{
+			ID:                 networkResource.ID,
+			Name:               networkResource.Name,
+			ContainerEndpoints: make(map[string]*ContainerEndpoint),
+		}
+		m.Networks[nw.ID] = nw
+
+		log.Printf("added network: %v", nw)
+		log.Printf("inspect: %v", networkResource)
+
+		for containerID, endpointResource := range networkResource.Containers {
+			endpoint := &ContainerEndpoint{
+				ContainerID:   containerID,
+				ContainerName: endpointResource.Name,
+				IPv4Address:   endpointResource.IPv4Address,
+				IPv6Address:   endpointResource.IPv6Address,
+			}
+			nw.ContainerEndpoints[containerID] = endpoint
+
+			log.Printf("container connected to network '%s': %v", nw.CompactString(), endpoint)
+		}
+	}
+
+	log.Printf("loaded network list")
+	return nil
+}
+
 func (m *networkList) HandleEvent(ctx context.Context, msg events.Message) error {
 	if msg.Type != events.NetworkEventType {
 		log.Printf("error, not a network event: %v", msg)
