@@ -10,7 +10,9 @@ RUN set -xe; \
 
 COPY . ./
 
+ENV CGO_ENABLED=1
 ENV GO111MODULE=on
+ENV GOOS=linux
 
 RUN set -xe; \
   go build \

@@ -34,10 +34,15 @@ func main() {
 	ctx, cancel := newContextAndCancel()
 	defer cancel()
 
-	networks, err := newNetworkList(ctx)
+	networks, err := NewNetworkList(ctx)
 	if err != nil {
 		log.Fatalf("failed to create docker network list: %v", err)
 	}
+
+	go func() {
+		dnsServer := NewDnsServer(ctx)
+		dnsServer.ListenAndServe()
+	}()
 
 	var timeout chan int
 

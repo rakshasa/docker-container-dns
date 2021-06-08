@@ -50,7 +50,7 @@ type networkList struct {
 	Errs     <-chan error
 }
 
-func newNetworkList(ctx context.Context) (*networkList, error) {
+func NewNetworkList(ctx context.Context) (*networkList, error) {
 	filter := filters.NewArgs()
 	filter.Add("type", events.NetworkEventType)
 	filter.Add("event", "create")
