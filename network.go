@@ -92,6 +92,15 @@ func (m *networkList) LoadList(ctx context.Context) error {
 		return err
 	}
 
+	// Load containers before networks to make sure any newly created
+	// networks will be populated.
+	log.Printf("loading container list")
+
+	containerList, err := cli.ContainerList(ctx, types.ContainerListOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get container list from docker: %v", err)
+	}
+
 	log.Printf("loading network list")
 
 	networkList, err := cli.NetworkList(ctx, types.NetworkListOptions{})
@@ -110,17 +119,17 @@ func (m *networkList) LoadList(ctx context.Context) error {
 		log.Printf("added network: %v", nw)
 		log.Printf("inspect: %v", networkResource)
 
-		for containerID, endpointResource := range networkResource.Containers {
-			endpoint := &ContainerEndpoint{
-				ContainerID:   containerID,
-				ContainerName: endpointResource.Name,
-				IPv4Address:   endpointResource.IPv4Address,
-				IPv6Address:   endpointResource.IPv6Address,
-			}
-			nw.ContainerEndpoints[containerID] = endpoint
+		// for containerID, endpointResource := range networkResource.Containers {
+		// 	endpoint := &ContainerEndpoint{
+		// 		ContainerID:   containerID,
+		// 		ContainerName: endpointResource.Name,
+		// 		IPv4Address:   endpointResource.IPv4Address,
+		// 		IPv6Address:   endpointResource.IPv6Address,
+		// 	}
+		// 	nw.ContainerEndpoints[containerID] = endpoint
 
-			log.Printf("container connected to network '%s': %v", nw.CompactString(), endpoint)
-		}
+		// 	log.Printf("container connected to network '%s': %v", nw.CompactString(), endpoint)
+		// }
 	}
 
 	log.Printf("loaded network list")
