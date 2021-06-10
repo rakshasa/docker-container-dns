@@ -117,19 +117,30 @@ func (m *networkList) LoadList(ctx context.Context) error {
 		m.Networks[nw.ID] = nw
 
 		log.Printf("added network: %v", nw)
-		log.Printf("inspect: %v", networkResource)
+	}
 
-		// for containerID, endpointResource := range networkResource.Containers {
-		// 	endpoint := &ContainerEndpoint{
-		// 		ContainerID:   containerID,
-		// 		ContainerName: endpointResource.Name,
-		// 		IPv4Address:   endpointResource.IPv4Address,
-		// 		IPv6Address:   endpointResource.IPv6Address,
-		// 	}
-		// 	nw.ContainerEndpoints[containerID] = endpoint
+	for _, container := range containerList {
+		for _, networkEndpoint := range container.NetworkSettings.Networks {
+			nw, ok := m.Networks[networkEndpoint.NetworkID]
+			if !ok {
+				continue
+			}
 
-		// 	log.Printf("container connected to network '%s': %v", nw.CompactString(), endpoint)
-		// }
+			containerName := container.ID
+			if len(container.Names) != 0 {
+				containerName = container.Names[0]
+			}
+
+			containerEndpoint := &ContainerEndpoint{
+				ContainerID:   container.ID,
+				ContainerName: containerName,
+				IPv4Address:   networkEndpoint.IPAddress,
+				IPv6Address:   networkEndpoint.GlobalIPv6Address,
+			}
+			nw.ContainerEndpoints[container.ID] = containerEndpoint
+
+			log.Printf("container connected to network '%s': %v", nw.CompactString(), containerEndpoint)
+		}
 	}
 
 	log.Printf("loaded network list")
