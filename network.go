@@ -252,7 +252,7 @@ func (m *networkList) handleDisconnect(msg events.Message) error {
 
 	endpoint, exists := nw.ContainerEndpoints[containerID]
 	if !exists {
-		return fmt.Errorf("container id does not exists on network '%s': %s", nw.CompactString(), networkID[:12])
+		return fmt.Errorf("container id does not exists on network '%s': %s", nw.CompactString(), containerID[:12])
 	}
 
 	delete(nw.ContainerEndpoints, containerID)
