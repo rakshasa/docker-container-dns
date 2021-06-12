@@ -86,6 +86,18 @@ func (m *networkList) PrintStatus() {
 	}
 }
 
+func (m *networkList) QueryEndpoint(address string) *ContainerEndpoint {
+	for _, nw := range m.Networks {
+		for _, endpoint := range nw.ContainerEndpoints {
+			if address == endpoint.ContainerName {
+				return endpoint
+			}
+		}
+	}
+
+	return nil
+}
+
 func (m *networkList) LoadList(ctx context.Context) error {
 	cli, err := dockerClient(ctx)
 	if err != nil {
@@ -130,6 +142,12 @@ func (m *networkList) LoadList(ctx context.Context) error {
 			if len(container.Names) != 0 {
 				containerName = container.Names[0]
 			}
+
+			if containerName[:1] != "/" {
+				log.Printf("invalid container name: %s", containerName)
+				continue
+			}
+			containerName = containerName[1:]
 
 			containerEndpoint := &ContainerEndpoint{
 				ContainerID:   container.ID,
@@ -230,9 +248,15 @@ func (m *networkList) handleConnect(ctx context.Context, msg events.Message) err
 		return fmt.Errorf("container id already exists on network '%s': %s", nw.CompactString(), networkID[:12])
 	}
 
+	containerName := containerInspect.Name
+	if containerName[:1] != "/" {
+		return fmt.Errorf("invalid container name: %s", containerName)
+	}
+	containerName = containerName[1:]
+
 	endpoint := &ContainerEndpoint{
 		ContainerID:   containerID,
-		ContainerName: containerInspect.Name,
+		ContainerName: containerName,
 		IPv4Address:   networkEndpoint.IPAddress,
 		IPv6Address:   networkEndpoint.GlobalIPv6Address,
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net"
+	"strings"
 
 	"github.com/miekg/dns"
 )
@@ -41,11 +42,11 @@ func (s *DnsServer) handleRequest(ctx context.Context, writer dns.ResponseWriter
 
 	ip, ok := writer.RemoteAddr().(*net.UDPAddr)
 	if !ok {
-		log.Printf("not an udp address")
+		log.Printf("dns_request: not an udp address")
 		return
 	}
 
-	log.Printf("request from udp address: %s", ip)
+	log.Printf("dns_request: request from udp address: %s", ip)
 
 	//var reply dns.RR
 
@@ -53,34 +54,56 @@ func (s *DnsServer) handleRequest(ctx context.Context, writer dns.ResponseWriter
 	msg.SetReply(request)
 
 	if len(request.Question) != 1 {
-		log.Printf("unsupported dns question length")
+		log.Printf("dns_request: unsupported dns question length")
 		return
 	}
 	question := request.Question[0]
 
-	switch question.Qtype {
-	case dns.TypeA:
-		log.Printf("type A request")
-
-		// reply = &dns.A{
-		// 	Hdr: dns.RR_Header{Name: dom, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 0},
-		// 	A:   a.To4(),
-		// }
-
-	case dns.TypeAAAA:
-		log.Printf("type AAAA request")
-		return
-	default:
-		log.Printf("unknown dns request type")
-		return
+	networkList, ok := ctx.Value(NetworksVarName).(*networkList)
+	if !ok {
+		log.Printf("dns_request: could not get networks list from context")
 	}
+
+	var queryAddress string
 
 	switch question.Qtype {
 	case dns.TypeA:
-		log.Printf("question A: %v", question.Qclass)
+		log.Printf("question A (%d): %s", question.Qclass, question.Name)
+
+		trimmedName := strings.TrimSuffix(question.Name, ".rt.")
+
+		if len(trimmedName) != len(question.Name) {
+			queryAddress = trimmedName
+		}
+
+		if len(queryAddress) != 0 {
+			endpoint := networkList.QueryEndpoint(queryAddress)
+
+			log.Printf("dns_request: matched '%s': %v", queryAddress, endpoint)
+
+			rr := &dns.A{
+				Hdr: dns.RR_Header{
+					Name: question.Name,
+					Rrtype: dns.TypeA,
+					Class: dns.ClassINET,
+					Ttl: 0,
+				},
+				A: net.ParseIP(endpoint.IPv4Address),
+			}
+
+			log.Printf("dns_request: RR: %v", rr)
+
+			msg.Answer = append(msg.Answer, rr)
+			// m.Extra = append(m.Extra, t)
+		}
+
 	case dns.TypeAAAA:
-		log.Printf("question AAAA: %v", question.Qclass)
+		log.Printf("question AAAA (%d): %s", question.Qclass, question.Name)
 	default:
-		log.Printf("question unknown: %v", question.Qclass)
+		log.Printf("question unknown (%d): %s", question.Qclass, question.Name)
 	}
+
+	log.Printf("dns_request: write message: %v", msg)
+
+	writer.WriteMsg(msg)
 }

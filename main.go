@@ -11,6 +11,7 @@ import (
 const (
 	DockerVersion = "1.40"
 	DockerContextVarName = "docker-client"
+	NetworksVarName = "networks"
 )
 
 func init() {
@@ -41,6 +42,8 @@ func main() {
 	if err := networks.LoadList(ctx); err != nil {
 		log.Fatalf("failed to load docker network list: %v", err)
 	}
+
+	ctx = context.WithValue(ctx, NetworksVarName, networks)
 
 	go func() {
 		dnsServer := NewDnsServer(ctx)
