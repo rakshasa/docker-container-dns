@@ -48,8 +48,6 @@ func (s *DnsServer) handleRequest(ctx context.Context, writer dns.ResponseWriter
 
 	log.Printf("dns_request: request from udp address: %s", ip)
 
-	//var reply dns.RR
-
 	msg := new(dns.Msg)
 	msg.SetReply(request)
 
@@ -62,45 +60,74 @@ func (s *DnsServer) handleRequest(ctx context.Context, writer dns.ResponseWriter
 	networkList, ok := ctx.Value(NetworksVarName).(*networkList)
 	if !ok {
 		log.Printf("dns_request: could not get networks list from context")
+		return
 	}
 
 	var queryAddress string
+
+	trimmedName := strings.TrimSuffix(question.Name, ".rt.")
+
+	if len(trimmedName) != len(question.Name) {
+		queryAddress = trimmedName
+	}
+
+	if len(queryAddress) == 0 {
+		log.Printf("dns_request: no valid request address")
+		return
+	}
+
+	endpoint := networkList.QueryEndpoint(queryAddress)
+	if endpoint == nil {
+		log.Printf("dns_request: could not find endpoint")
+		return
+	}
 
 	switch question.Qtype {
 	case dns.TypeA:
 		log.Printf("question A (%d): %s", question.Qclass, question.Name)
 
-		trimmedName := strings.TrimSuffix(question.Name, ".rt.")
+		replyAddress := net.ParseIP(endpoint.IPv4Address)
 
-		if len(trimmedName) != len(question.Name) {
-			queryAddress = trimmedName
+		if replyAddress == nil {
+			log.Printf("dns_request: nil reply address")
+			return
 		}
 
-		if len(queryAddress) != 0 {
-			endpoint := networkList.QueryEndpoint(queryAddress)
-
-			log.Printf("dns_request: matched '%s': %v", queryAddress, endpoint)
-
-			rr := &dns.A{
-				Hdr: dns.RR_Header{
-					Name: question.Name,
-					Rrtype: dns.TypeA,
-					Class: dns.ClassINET,
-					Ttl: 0,
-				},
-				A: net.ParseIP(endpoint.IPv4Address),
-			}
-
-			log.Printf("dns_request: RR: %v", rr)
-
-			msg.Answer = append(msg.Answer, rr)
-			// m.Extra = append(m.Extra, t)
+		rr := &dns.A{
+			Hdr: dns.RR_Header{
+				Name: question.Name,
+				Rrtype: dns.TypeA,
+				Class: dns.ClassINET,
+				Ttl: 0,
+			},
+			A: net.ParseIP(endpoint.IPv4Address),
 		}
+		msg.Answer = append(msg.Answer, rr)
 
 	case dns.TypeAAAA:
 		log.Printf("question AAAA (%d): %s", question.Qclass, question.Name)
+
+		replyAddress := net.ParseIP(endpoint.IPv6Address)
+
+		if replyAddress == nil {
+			log.Printf("dns_request: nil reply address")
+			return
+		}
+
+		rr := &dns.AAAA{
+			Hdr: dns.RR_Header{
+				Name: question.Name,
+				Rrtype: dns.TypeAAAA,
+				Class: dns.ClassINET,
+				Ttl: 0,
+			},
+			AAAA: net.ParseIP(endpoint.IPv6Address),
+		}
+		msg.Answer = append(msg.Answer, rr)
+
 	default:
 		log.Printf("question unknown (%d): %s", question.Qclass, question.Name)
+		return
 	}
 
 	log.Printf("dns_request: write message: %v", msg)
